@@ -1,0 +1,55 @@
+name: Compilar APK
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "scripts/**"
+      - ".github/workflows/datos-precios.yml"
+      - "**.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: URL de datos de precios (GitHub Pages)
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          REPO="${{ github.event.repository.name }}"
+          echo "CODERAMA_DATA_URL=https://${OWNER}.github.io/${REPO}/" >> "$GITHUB_ENV"
+
+      - name: Compilar
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Renombrar APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk coderama.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coderama-apk
+          path: coderama.apk
+
+      - name: Publicar en Releases (para descargar desde el teléfono)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ultima --cleanup-tag -y || true
+          gh release create ultima coderama.apk \
+            --title "Coderama ${{ github.run_number }}" \
+            --notes "Compilación automática del $(date -u +'%d/%m/%Y %H:%M') UTC. Descargá coderama.apk e instalalo en el teléfono." \
+            --target "${{ github.sha }}"

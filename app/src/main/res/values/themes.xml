@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Coderama" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#0F5132</item>
+        <item name="android:windowBackground">@color/fondo</item>
+    </style>
+    <color name="fondo">#F6F7F2</color>
+    <color name="verde">#1B7F4B</color>
+</resources>

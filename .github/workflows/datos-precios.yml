@@ -1,0 +1,55 @@
+name: Datos de precios (SEPA)
+
+# Corre todos los días y publica los precios procesados en GitHub Pages.
+# Requisito único: Settings → Pages → Source: "GitHub Actions".
+on:
+  schedule:
+    - cron: "17 14 * * *"   # 11:17 de Argentina (los comercios rectifican hasta las 10)
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/**"
+      - ".github/workflows/datos-precios.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  procesar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Procesar SEPA
+        run: python scripts/procesar_sepa.py --salida sitio
+
+      - name: Alertas ANMAT
+        run: python scripts/alertas_anmat.py --salida sitio || echo "No se pudieron actualizar las alertas"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: sitio
+
+  publicar:
+    needs: procesar
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
