@@ -47,13 +47,19 @@ jobs:
       - name: Verificar Python (PC propia)
         if: runner.environment != 'github-hosted' && runner.os == 'Windows'
         run: |
-          $py = Get-Command python -ErrorAction SilentlyContinue
-          if (-not $py -or $py.Source -like '*WindowsApps*') {
-            Write-Output "::error::El runner no encuentra Python. Instalalo para todos los usuarios (winget install Python.Python.3.12 --scope machine) y reiniciá el servicio del runner."
+          # El servicio del runner no siempre ve el PATH actualizado: se busca Python en las rutas habituales
+          $py = Get-Command python -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike '*WindowsApps*' } | Select-Object -First 1
+          $ruta = if ($py) { $py.Source } else {
+            Get-ChildItem "C:\Program Files\Python3*\python.exe", "C:\Python3*\python.exe" -ErrorAction SilentlyContinue |
+              Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $ruta) {
+            Write-Output "::error::El runner no encuentra Python. Instalalo para todos los usuarios (winget install Python.Python.3.12 --scope machine)."
             exit 1
           }
-          Write-Output "Python: $($py.Source)"
-          python --version
+          Write-Output "Python encontrado: $ruta"
+          Split-Path $ruta | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & $ruta --version
 
       - name: Procesar SEPA
         run: python scripts/procesar_sepa.py --salida sitio
