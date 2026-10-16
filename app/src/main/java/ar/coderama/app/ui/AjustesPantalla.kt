@@ -54,6 +54,8 @@ fun PantallaAjustes(vm: AppViewModel, onVolver: () -> Unit) {
     var editando by remember { mutableStateOf<Perfil?>(null) }
     var creando by remember { mutableStateOf(false) }
 
+    LaunchedEffect(Unit) { vm.asegurarIndice() }
+
     LaunchedEffect(mensaje) {
         mensaje?.let { Toast.makeText(ctx, it, Toast.LENGTH_SHORT).show(); vm.mensajeVisto() }
     }

@@ -29,8 +29,8 @@ class Precios(context: Context) {
 
     suspend fun indice(forzar: Boolean = false): Indice? = mutex.withLock {
         val archivo = File(carpeta, "index.json")
-        cacheIndice?.takeIf { !forzar && !viejo(archivo, 12) }?.let { return@withLock it }
-        val texto = descargarOCache("index.json", archivo, horas = 12, forzar = forzar) ?: return@withLock null
+        cacheIndice?.takeIf { !forzar && !viejo(archivo, 3) }?.let { return@withLock it }
+        val texto = descargarOCache("index.json", archivo, horas = 3, forzar = forzar) ?: return@withLock null
         cacheIndice = runCatching { Red.json.decodeFromString(Indice.serializer(), texto) }.getOrNull()
         cacheIndice
     }

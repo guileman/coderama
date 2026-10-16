@@ -18,6 +18,8 @@ import ar.coderama.app.data.Productos
 import ar.coderama.app.data.ProvinciaIdx
 import ar.coderama.app.logica.EficienciaEnergetica
 import ar.coderama.app.logica.Etiqueta
+import ar.coderama.app.logica.claveLocalidad
+import ar.coderama.app.logica.normalizar
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -81,7 +83,39 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 !precios.configurado -> EstadoIndice.Error("La app no tiene configurada la dirección de los datos de precios.")
                 else -> EstadoIndice.Error("Todavía no hay datos de precios publicados o no hay conexión.")
             }
+            if (idx != null) reconciliarZona(idx)
         }
+    }
+
+    /** Reintenta cargar la lista de localidades si antes falló (al abrir Ajustes, por ejemplo). */
+    fun asegurarIndice() {
+        if (_indice.value is EstadoIndice.Error) cargarIndice(forzar = true)
+    }
+
+    /**
+     * Si la zona se cargó a mano (sin datos) o con un nombre de localidad que cambió,
+     * la vincula con la localidad correspondiente de la lista de precios.
+     */
+    private suspend fun reconciliarZona(idx: Indice) {
+        val a = almacen.ajustes.first()
+        val nombre = a.localidadNombre?.takeIf { it.isNotBlank() } ?: return
+        val prov = idx.provincias.firstOrNull { normalizar(it.nombre) == normalizar(a.provinciaNombre) } ?: return
+        if (a.provinciaIso == prov.iso && a.localidadId != null && prov.localidades.any { it.id == a.localidadId }) return
+        val clave = claveLocalidad(nombre)
+        val loc = prov.localidades.firstOrNull { it.id == clave }
+            ?: prov.localidades.firstOrNull { claveLocalidad(it.nombre) == clave }
+            ?: prov.localidades.filter { normalizar(it.nombre).contains(normalizar(nombre)) }.maxByOrNull { it.sucursales }
+            ?: return
+        almacen.actualizar {
+            it.copy(
+                provinciaIso = prov.iso,
+                provinciaNombre = prov.nombre,
+                localidadId = loc.id,
+                localidadNombre = loc.nombre,
+                cadenas = it.cadenas.filter { c -> c in loc.cadenas }.toSet(),
+            )
+        }
+        ultimoCodigo = null
     }
 
     // ------------------------------------------------------------ productos
@@ -142,6 +176,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             ultimoCodigo = null
+            val idx = (_indice.value as? EstadoIndice.Listo)?.indice
+            if (localidad == null && idx != null) reconciliarZona(idx)
         }
     }
 

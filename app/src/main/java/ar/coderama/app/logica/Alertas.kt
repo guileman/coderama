@@ -19,6 +19,19 @@ fun normalizar(t: String?): String {
     return sinTildes.lowercase().replace(Regex("[^a-z0-9%]+"), " ").trim()
 }
 
+private val prefijosLocalidad = Regex("^(ciudad autonoma de |ciudad de |cdad de |cdad |ciudad |villa de la ciudad de )")
+private val sufijosLocalidad = Regex(" (capital|centro|norte|sur|este|oeste|ciudad)$")
+
+/** Misma regla que usa el procesamiento del SEPA para agrupar nombres de una ciudad. */
+fun claveLocalidad(nombre: String?): String {
+    var t = normalizar(nombre)
+    repeat(2) {
+        t = prefijosLocalidad.replace(t, "").trim()
+        t = sufijosLocalidad.replace(t, "").trim()
+    }
+    return t.replace(" ", "-").ifEmpty { "sin-localidad" }
+}
+
 private fun contienePalabra(texto: String, palabras: List<String>): String? =
     palabras.firstOrNull { p -> Regex("(^| )${Regex.escape(p)}( |$)").containsMatchIn(texto) }
 
