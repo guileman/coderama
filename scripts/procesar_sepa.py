@@ -177,9 +177,16 @@ def paquetes(zf: zipfile.ZipFile, prefijo: str = ""):
         base = os.path.basename(nombre).lower()
         if info.is_dir():
             continue
+        if "__macosx" in nombre.lower():
+            continue
         if base.endswith(".zip"):
-            with zf.open(info) as f:
-                interno = zipfile.ZipFile(io.BytesIO(f.read()))
+            try:
+                with zf.open(info) as f:
+                    interno = zipfile.ZipFile(io.BytesIO(f.read()))
+            except (zipfile.BadZipFile, OSError) as e:
+                # Algunos comercios suben archivos vacíos o dañados: se saltean
+                log(f"Salteado {prefijo + nombre} ({info.file_size} bytes): {e}")
+                continue
             yield from paquetes(interno, prefijo + nombre + "/")
             continue
         for tipo in ("comercio", "sucursales", "productos"):
@@ -204,77 +211,80 @@ def procesar(ruta_zip: str, salida: str, fecha: str):
 
     with zipfile.ZipFile(ruta_zip) as zf:
         for carpeta, g in paquetes(zf):
-            nombres_bandera = {}
-            if "comercio" in g:
-                for c in leer_csv(g["comercio"]):
-                    k = f'{c.get("id_comercio","").strip()}-{c.get("id_bandera","").strip()}'
-                    nombre = (c.get("comercio_bandera_nombre") or c.get("comercio_razon_social") or k).strip()
-                    nombres_bandera[k] = titulo(nombre)
-            cadenas.update(nombres_bandera)
+            try:
+                nombres_bandera = {}
+                if "comercio" in g:
+                    for c in leer_csv(g["comercio"]):
+                        k = f'{c.get("id_comercio","").strip()}-{c.get("id_bandera","").strip()}'
+                        nombre = (c.get("comercio_bandera_nombre") or c.get("comercio_razon_social") or k).strip()
+                        nombres_bandera[k] = titulo(nombre)
+                cadenas.update(nombres_bandera)
 
-            n_suc = 0
-            for s in leer_csv(g["sucursales"]):
-                k_cad = f'{s.get("id_comercio","").strip()}-{s.get("id_bandera","").strip()}'
-                k_suc = (k_cad, s.get("id_sucursal", "").strip())
-                iso = (s.get("sucursales_provincia") or "").strip().upper()
-                if iso not in PROVINCIAS:
-                    continue
-                loc_nombre = (s.get("sucursales_localidad") or "").strip()
-                loc_k = (iso, slug(loc_nombre))
-                info = localidades.setdefault(loc_k, {
-                    "nombres": Counter(), "lat": [], "lon": [], "sucursales": [], "cadenas": set(),
-                })
-                info["nombres"][titulo(loc_nombre) or "Sin localidad"] += 1
-                try:
-                    lat = float((s.get("sucursales_latitud") or "").replace(",", "."))
-                    lon = float((s.get("sucursales_longitud") or "").replace(",", "."))
-                except ValueError:
-                    lat = lon = None
-                if lat and lon and -56 < lat < -21 and -74 < lon < -53:
-                    info["lat"].append(lat)
-                    info["lon"].append(lon)
-                direccion = " ".join(x for x in [
-                    (s.get("sucursales_calle") or "").strip(),
-                    (s.get("sucursales_numero") or "").strip(),
-                ] if x)
-                info["sucursales"].append([k_cad, titulo(s.get("sucursales_nombre") or ""), titulo(direccion)])
-                info["cadenas"].add(k_cad)
-                sucursal_loc[k_suc] = (loc_k, len(info["sucursales"]) - 1)
-                cadenas.setdefault(k_cad, k_cad)
-                n_suc += 1
+                n_suc = 0
+                for s in leer_csv(g["sucursales"]):
+                    k_cad = f'{s.get("id_comercio","").strip()}-{s.get("id_bandera","").strip()}'
+                    k_suc = (k_cad, s.get("id_sucursal", "").strip())
+                    iso = (s.get("sucursales_provincia") or "").strip().upper()
+                    if iso not in PROVINCIAS:
+                        continue
+                    loc_nombre = (s.get("sucursales_localidad") or "").strip()
+                    loc_k = (iso, slug(loc_nombre))
+                    info = localidades.setdefault(loc_k, {
+                        "nombres": Counter(), "lat": [], "lon": [], "sucursales": [], "cadenas": set(),
+                    })
+                    info["nombres"][titulo(loc_nombre) or "Sin localidad"] += 1
+                    try:
+                        lat = float((s.get("sucursales_latitud") or "").replace(",", "."))
+                        lon = float((s.get("sucursales_longitud") or "").replace(",", "."))
+                    except ValueError:
+                        lat = lon = None
+                    if lat and lon and -56 < lat < -21 and -74 < lon < -53:
+                        info["lat"].append(lat)
+                        info["lon"].append(lon)
+                    direccion = " ".join(x for x in [
+                        (s.get("sucursales_calle") or "").strip(),
+                        (s.get("sucursales_numero") or "").strip(),
+                    ] if x)
+                    info["sucursales"].append([k_cad, titulo(s.get("sucursales_nombre") or ""), titulo(direccion)])
+                    info["cadenas"].add(k_cad)
+                    sucursal_loc[k_suc] = (loc_k, len(info["sucursales"]) - 1)
+                    cadenas.setdefault(k_cad, k_cad)
+                    n_suc += 1
 
-            n_prod = 0
-            for p in leer_csv(g["productos"]):
-                if (p.get("productos_ean") or "1").strip() not in ("1", "true", "si", "sí"):
-                    continue
-                ean = ean_normalizado(p.get("id_producto"))
-                precio = num(p.get("productos_precio_lista"))
-                if not ean or precio is None:
-                    continue
-                k_cad = f'{p.get("id_comercio","").strip()}-{p.get("id_bandera","").strip()}'
-                destino = sucursal_loc.get((k_cad, p.get("id_sucursal", "").strip()))
-                if not destino:
-                    continue
-                loc_k, idx_suc = destino
-                promo = min([x for x in (num(p.get("productos_precio_unitario_promo1")),
-                                         num(p.get("productos_precio_unitario_promo2"))) if x] or [0]) or None
-                if ean not in descripciones:
-                    descripciones[ean] = ((p.get("productos_descripcion") or "").strip(),
-                                          titulo(p.get("productos_marca") or ""))
-                por_ean = agregados[loc_k].setdefault(ean, {})
-                a = por_ean.get(k_cad)
-                if a is None:
-                    por_ean[k_cad] = [precio, precio, 1, idx_suc, promo]
-                else:
-                    if precio < a[0]:
-                        a[0], a[3] = precio, idx_suc
-                    if precio > a[1]:
-                        a[1] = precio
-                    a[2] += 1
-                    if promo and (a[4] is None or promo < a[4]):
-                        a[4] = promo
-                n_prod += 1
-            log(f"{carpeta[:60]:60s} sucursales={n_suc:5d} precios={n_prod:8d}")
+                n_prod = 0
+                for p in leer_csv(g["productos"]):
+                    if (p.get("productos_ean") or "1").strip() not in ("1", "true", "si", "sí"):
+                        continue
+                    ean = ean_normalizado(p.get("id_producto"))
+                    precio = num(p.get("productos_precio_lista"))
+                    if not ean or precio is None:
+                        continue
+                    k_cad = f'{p.get("id_comercio","").strip()}-{p.get("id_bandera","").strip()}'
+                    destino = sucursal_loc.get((k_cad, p.get("id_sucursal", "").strip()))
+                    if not destino:
+                        continue
+                    loc_k, idx_suc = destino
+                    promo = min([x for x in (num(p.get("productos_precio_unitario_promo1")),
+                                             num(p.get("productos_precio_unitario_promo2"))) if x] or [0]) or None
+                    if ean not in descripciones:
+                        descripciones[ean] = ((p.get("productos_descripcion") or "").strip(),
+                                              titulo(p.get("productos_marca") or ""))
+                    por_ean = agregados[loc_k].setdefault(ean, {})
+                    a = por_ean.get(k_cad)
+                    if a is None:
+                        por_ean[k_cad] = [precio, precio, 1, idx_suc, promo]
+                    else:
+                        if precio < a[0]:
+                            a[0], a[3] = precio, idx_suc
+                        if precio > a[1]:
+                            a[1] = precio
+                        a[2] += 1
+                        if promo and (a[4] is None or promo < a[4]):
+                            a[4] = promo
+                    n_prod += 1
+                log(f"{carpeta[:60]:60s} sucursales={n_suc:5d} precios={n_prod:8d}")
+            except Exception as e:  # noqa: BLE001
+                log(f"Salteado {carpeta}: {type(e).__name__}: {e}")
 
     # ------------------------------------------------------------ escritura
     indice = {"fecha": fecha, "cadenas": cadenas, "provincias": []}
@@ -315,6 +325,9 @@ def procesar(ruta_zip: str, salida: str, fecha: str):
         json.dump(indice, f, ensure_ascii=False, separators=(",", ":"))
     n_loc = sum(len(p["localidades"]) for p in indice["provincias"])
     log(f"Listo: {len(indice['provincias'])} provincias, {n_loc} localidades, {len(cadenas)} cadenas")
+    tam = sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(salida) for f in fs) / 1e6
+    print(f"::notice::SEPA {fecha}: {len(indice['provincias'])} provincias, {n_loc} localidades, "
+          f"{len(cadenas)} cadenas, {len(descripciones)} productos, {tam:.0f} MB publicados", flush=True)
 
 
 def main():
