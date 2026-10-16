@@ -100,7 +100,7 @@ def abrir(url: str, timeout: int):
         return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout)
     except urllib.error.HTTPError as e:
         cuerpo = e.read(400).decode("utf-8", "replace")
-        log(f"HTTP {e.code} en {url}: {cuerpo!r}")
+        log(f"Error HTTP {e.code} en {url}: {cuerpo!r} {dict(e.headers)}")
         raise
 
 
@@ -114,6 +114,18 @@ def elegir_recurso() -> dict:
                 break
         except Exception as e:  # noqa: BLE001
             log("No se pudo leer", url, e)
+    if paquete is None:
+        # Búsqueda en el portal nacional, que replica los datasets de los ministerios
+        try:
+            with abrir("https://datos.gob.ar/api/3/action/package_search?q=sepa&rows=20", 60) as r:
+                resultados = json.load(r)["result"]["results"]
+            for pk in resultados:
+                zips = [x["url"] for x in pk.get("resources", []) if str(x.get("url", "")).lower().endswith(".zip")]
+                log("Error-diag dataset:", pk.get("name"), "|", pk.get("title"), "| zips:", len(zips), zips[:2])
+                if zips and paquete is None:
+                    paquete = pk
+        except Exception as e:  # noqa: BLE001
+            log("Error en búsqueda alternativa", e)
     if paquete is None:
         sys.exit("No se pudo acceder al catálogo del SEPA")
     zips = [x for x in paquete["resources"] if str(x.get("url", "")).lower().endswith(".zip")]
