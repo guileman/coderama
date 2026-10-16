@@ -70,6 +70,19 @@ def slug(texto: str) -> str:
     return t or "sin-localidad"
 
 
+PREFIJOS_LOCALIDAD = re.compile(r"^(ciudad autonoma de |ciudad de |cdad de |cdad |ciudad |villa de la ciudad de )")
+SUFIJOS_LOCALIDAD = re.compile(r"(-| )(capital|centro|norte|sur|este|oeste|ciudad)$")
+
+
+def clave_localidad(texto: str) -> str:
+    """Agrupa variantes como 'Ciudad de Córdoba Norte' y 'CORDOBA CAPITAL' en 'cordoba'."""
+    t = slug(texto).replace("-", " ")
+    for _ in range(2):
+        t = PREFIJOS_LOCALIDAD.sub("", t).strip()
+        t = SUFIJOS_LOCALIDAD.sub("", t).strip()
+    return slug(t)
+
+
 def titulo(texto: str) -> str:
     t = (texto or "").strip()
     return t.title() if t.isupper() or t.islower() else t
@@ -216,6 +229,8 @@ def procesar(ruta_zip: str, salida: str, fecha: str):
                 if "comercio" in g:
                     for c in leer_csv(g["comercio"]):
                         k = f'{c.get("id_comercio","").strip()}-{c.get("id_bandera","").strip()}'
+                        if not c.get("id_comercio", "").strip("\x00 "):
+                            continue
                         nombre = (c.get("comercio_bandera_nombre") or c.get("comercio_razon_social") or k).strip()
                         nombres_bandera[k] = titulo(nombre)
                 cadenas.update(nombres_bandera)
@@ -223,12 +238,14 @@ def procesar(ruta_zip: str, salida: str, fecha: str):
                 n_suc = 0
                 for s in leer_csv(g["sucursales"]):
                     k_cad = f'{s.get("id_comercio","").strip()}-{s.get("id_bandera","").strip()}'
+                    if not s.get("id_comercio", "").strip("\x00 "):
+                        continue
                     k_suc = (k_cad, s.get("id_sucursal", "").strip())
                     iso = (s.get("sucursales_provincia") or "").strip().upper()
                     if iso not in PROVINCIAS:
                         continue
                     loc_nombre = (s.get("sucursales_localidad") or "").strip()
-                    loc_k = (iso, slug(loc_nombre))
+                    loc_k = (iso, clave_localidad(loc_nombre))
                     info = localidades.setdefault(loc_k, {
                         "nombres": Counter(), "lat": [], "lon": [], "sucursales": [], "cadenas": set(),
                     })
@@ -311,7 +328,8 @@ def procesar(ruta_zip: str, salida: str, fecha: str):
         lon = sum(info["lon"]) / len(info["lon"]) if info["lon"] else None
         por_prov[iso].append({
             "id": loc_slug,
-            "nombre": max(info["nombres"].items(), key=lambda x: (x[1], not x[0].isascii()))[0],
+            "nombre": max(info["nombres"].items(),
+                          key=lambda x: (slug(x[0]) == loc_slug, x[1], not x[0].isascii()))[0],
             "lat": round(lat, 4) if lat else None,
             "lon": round(lon, 4) if lon else None,
             "sucursales": len(info["sucursales"]),
