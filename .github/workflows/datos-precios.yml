@@ -44,6 +44,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verificar Python (PC propia)
+        if: runner.environment != 'github-hosted' && runner.os == 'Windows'
+        run: |
+          $py = Get-Command python -ErrorAction SilentlyContinue
+          if (-not $py -or $py.Source -like '*WindowsApps*') {
+            Write-Output "::error::El runner no encuentra Python. Instalalo para todos los usuarios (winget install Python.Python.3.12 --scope machine) y reiniciá el servicio del runner."
+            exit 1
+          }
+          Write-Output "Python: $($py.Source)"
+          python --version
+
       - name: Procesar SEPA
         run: python scripts/procesar_sepa.py --salida sitio
 
