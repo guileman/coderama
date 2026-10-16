@@ -46,27 +46,28 @@ jobs:
 
       - name: Verificar Python (PC propia)
         if: runner.environment != 'github-hosted' && runner.os == 'Windows'
+        shell: cmd
         run: |
-          # El servicio del runner no siempre ve el PATH actualizado: se busca Python en las rutas habituales
-          $py = Get-Command python -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike '*WindowsApps*' } | Select-Object -First 1
-          $ruta = if ($py) { $py.Source } else {
-            Get-ChildItem "C:\Program Files\Python3*\python.exe", "C:\Python3*\python.exe" -ErrorAction SilentlyContinue |
-              Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
-          }
-          if (-not $ruta) {
-            Write-Output "::error::El runner no encuentra Python. Instalalo para todos los usuarios (winget install Python.Python.3.12 --scope machine)."
-            exit 1
-          }
-          Write-Output "Python encontrado: $ruta"
-          Split-Path $ruta | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & $ruta --version
+          echo ::warning::Usuario del runner: %USERNAME% - Carpeta: %CD%
+          for %%d in ("C:\Program Files\Python314" "C:\Program Files\Python313" "C:\Program Files\Python312" "C:\Program Files\Python311" "C:\Python312") do (
+            if exist "%%~d\python.exe" (
+              echo %%~d>>"%GITHUB_PATH%"
+              echo ::warning::Python encontrado en %%~d
+              "%%~d\python.exe" --version
+              exit /b 0
+            )
+          )
+          echo ::error::El runner no encuentra Python en C:\Program Files. Instalalo para todos los usuarios: winget install Python.Python.3.12 --scope machine
+          exit /b 1
 
       - name: Procesar SEPA
-        run: python scripts/procesar_sepa.py --salida sitio
+        shell: cmd
+        run: python scripts\procesar_sepa.py --salida sitio
 
       - name: Alertas ANMAT
         continue-on-error: true
-        run: python scripts/alertas_anmat.py --salida sitio
+        shell: cmd
+        run: python scripts\alertas_anmat.py --salida sitio
 
       - uses: actions/upload-artifact@v4
         with:
