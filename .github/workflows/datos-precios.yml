@@ -33,7 +33,18 @@ jobs:
           python-version: "3.12"
 
       - name: Procesar SEPA
-        run: python scripts/procesar_sepa.py --salida sitio
+        run: |
+          set -o pipefail
+          python scripts/procesar_sepa.py --salida sitio 2>&1 | tee sepa.log
+
+      - name: Mostrar errores
+        if: failure()
+        run: |
+          f=$(ls *.log 2>/dev/null | head -1); [ -z "$f" ] && exit 0
+          grep -E "^e: |error:|Error|What went wrong|Traceback|Exception|^  File|^[A-Za-z]+Error" -A2 "$f" | grep -v "^--$" | head -80 > errores.txt || true
+          [ -s errores.txt ] || tail -40 "$f" > errores.txt
+          split -l 12 errores.txt parte_
+          for p in parte_*; do echo "::error::$(sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g' "$p")"; done
 
       - name: Alertas ANMAT
         run: python scripts/alertas_anmat.py --salida sitio || echo "No se pudieron actualizar las alertas"
