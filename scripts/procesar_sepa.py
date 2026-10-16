@@ -338,4 +338,16 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BaseException as e:  # noqa: BLE001
+        if isinstance(e, SystemExit) and not e.code:
+            raise
+        import traceback
+        detalle = traceback.format_exc()
+        # Anotación visible en GitHub Actions
+        print("::error::" + detalle[-3000:].replace("%", "%25").replace("\r", "").replace("\n", "%0A"), flush=True)
+        if isinstance(e, urllib.error.HTTPError) and e.code == 403:
+            print("::error::El servidor del SEPA rechazó la conexión (403). Suele bloquear conexiones desde fuera "
+                  "de Argentina: configurá un self-hosted runner (ver .github/workflows/datos-precios.yml).", flush=True)
+        sys.exit(1)

@@ -1,7 +1,15 @@
 name: Datos de precios (SEPA)
 
 # Corre todos los días y publica los precios procesados en GitHub Pages.
-# Requisito único: Settings → Pages → Source: "GitHub Actions".
+#
+# IMPORTANTE: el servidor del SEPA (datos.produccion.gob.ar) bloquea las conexiones
+# desde fuera de Argentina, incluidos los servidores de GitHub. Por eso el
+# procesamiento corre en una computadora en Argentina con un "self-hosted runner":
+#   1. Settings → Actions → Runners → New self-hosted runner (instalarlo en la PC).
+#   2. Settings → Secrets and variables → Actions → Variables → RUNNER_SEPA = self-hosted
+# Sin esa variable, intenta correr en los servidores de GitHub.
+#
+# Requisito de publicación: Settings → Pages → Source: "GitHub Actions".
 on:
   schedule:
     - cron: "17 14 * * *"   # 11:17 de Argentina (los comercios rectifican hasta las 10)
@@ -23,40 +31,48 @@ concurrency:
 
 jobs:
   procesar:
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    runs-on: ${{ vars.RUNNER_SEPA || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
+        if: runner.environment == 'github-hosted'
         with:
           python-version: "3.12"
 
       - name: Procesar SEPA
-        run: |
-          set -o pipefail
-          python scripts/procesar_sepa.py --salida sitio 2>&1 | tee sepa.log
-
-      - name: Mostrar errores
-        if: failure()
-        run: |
-          f=$(ls *.log 2>/dev/null | head -1); [ -z "$f" ] && exit 0
-          grep -E "^e: |error:|Error|What went wrong|Traceback|Exception|^  File|^[A-Za-z]+Error" -A2 "$f" | grep -v "^--$" | head -80 > errores.txt || true
-          [ -s errores.txt ] || tail -40 "$f" > errores.txt
-          split -l 12 errores.txt parte_
-          for p in parte_*; do echo "::error::$(sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g' "$p")"; done
+        run: python scripts/procesar_sepa.py --salida sitio
 
       - name: Alertas ANMAT
-        run: python scripts/alertas_anmat.py --salida sitio || echo "No se pudieron actualizar las alertas"
+        continue-on-error: true
+        run: python scripts/alertas_anmat.py --salida sitio
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sitio
+          path: sitio
+          include-hidden-files: true
+          retention-days: 2
+
+  armar-pages:
+    needs: procesar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sitio
+          path: sitio
       - uses: actions/configure-pages@v5
-
       - uses: actions/upload-pages-artifact@v3
         with:
           path: sitio
 
   publicar:
-    needs: procesar
+    needs: armar-pages
     runs-on: ubuntu-latest
     environment:
       name: github-pages

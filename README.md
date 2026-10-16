@@ -26,6 +26,8 @@ Los precios se procesan todos los días en GitHub y se publican en GitHub Pages.
 
 Después corre solo todos los días a las 11:17 (hora argentina).
 
+**Importante:** el servidor del SEPA bloquea conexiones desde fuera de Argentina, incluidos los servidores de GitHub. El procesamiento tiene que correr en una PC en Argentina con un *self-hosted runner* de GitHub Actions (Settings → Actions → Runners → New self-hosted runner) y la variable de repositorio `RUNNER_SEPA = self-hosted`. Requiere Python 3 instalado en esa PC.
+
 ## Estructura
 
 | Carpeta | Qué hay |
