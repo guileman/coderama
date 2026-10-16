@@ -24,6 +24,8 @@ android {
         versionCode = ciVersionCode
         versionName = "0.1.$ciVersionCode"
         buildConfigField("String", "DATA_BASE_URL", "\"$dataBaseUrl\"")
+        // Solo procesadores de teléfonos (sin emuladores x86): el APK pesa la mitad
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     signingConfigs {

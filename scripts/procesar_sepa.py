@@ -31,12 +31,21 @@ import sys
 import tempfile
 import time
 import unicodedata
+import urllib.error
 import urllib.request
 import zipfile
 from collections import Counter, defaultdict
 
 CKAN = "https://datos.produccion.gob.ar/api/3/action/package_show?id=sepa-precios"
-UA = {"User-Agent": "Coderama/1.0 (procesamiento de datos abiertos SEPA)"}
+UA = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+    "Accept": "application/json, text/html, */*",
+    "Accept-Language": "es-AR,es;q=0.9",
+}
+CKAN_ALTERNATIVOS = [
+    CKAN,
+    "https://datos.gob.ar/api/3/action/package_show?id=produccion-precios-claros---base-sepa",
+]
 
 PROVINCIAS = {
     "AR-C": "Ciudad Autónoma de Buenos Aires", "AR-B": "Buenos Aires", "AR-K": "Catamarca",
@@ -86,10 +95,27 @@ def ean_normalizado(codigo: str) -> str | None:
 
 # ---------------------------------------------------------------- descarga
 
+def abrir(url: str, timeout: int):
+    try:
+        return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout)
+    except urllib.error.HTTPError as e:
+        cuerpo = e.read(400).decode("utf-8", "replace")
+        log(f"HTTP {e.code} en {url}: {cuerpo!r}")
+        raise
+
+
 def elegir_recurso() -> dict:
     log("Consultando catálogo CKAN")
-    with urllib.request.urlopen(urllib.request.Request(CKAN, headers=UA), timeout=60) as r:
-        paquete = json.load(r)["result"]
+    paquete = None
+    for url in CKAN_ALTERNATIVOS:
+        try:
+            with abrir(url, 60) as r:
+                paquete = json.load(r)["result"]
+                break
+        except Exception as e:  # noqa: BLE001
+            log("No se pudo leer", url, e)
+    if paquete is None:
+        sys.exit("No se pudo acceder al catálogo del SEPA")
     zips = [x for x in paquete["resources"] if str(x.get("url", "")).lower().endswith(".zip")]
     if not zips:
         sys.exit("No se encontraron ZIP en el dataset SEPA")
@@ -101,8 +127,7 @@ def elegir_recurso() -> dict:
 
 def descargar(url: str, destino: str):
     log("Descargando", url)
-    req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=600) as r, open(destino, "wb") as f:
+    with abrir(url, 600) as r, open(destino, "wb") as f:
         total = 0
         while True:
             bloque = r.read(1 << 20)
